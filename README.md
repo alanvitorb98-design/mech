@@ -17,6 +17,10 @@ python3 -m http.server 8000
 
 Precisa de teclado e mouse. Fones são recomendados, porque o som faz parte do painel.
 
+## Versão Godot
+
+A pasta [`godot/`](godot/) tem o mesmo protótipo portado pra Godot 4. Abra `godot/project.godot` na Godot 4.2 ou mais nova e aperte F5. Detalhes em [`godot/README.md`](godot/README.md).
+
 ## Controles
 
 | Tecla | Ação |

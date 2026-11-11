@@ -1,0 +1,83 @@
+extends RefCounted
+# Estado de uma partida. Um objeto novo a cada "Ligar o mech".
+
+var phase = "menu"
+var time = 0.0
+# posição no chão (x, z), empurrão, rumo das pernas, velocidade e giro
+var pos = Vector2.ZERO
+var push = Vector2.ZERO
+var yaw = 0.0
+var v = 0.0
+var w = 0.0
+# torso (t), inclinação da cabeça (p)
+var t = 0.0
+var t_vel = 0.0
+var t_target = 0.0
+var p = -0.02
+var p_target = -0.02
+# sistemas
+var P = 0.0          # pressão hidráulica (bar)
+var rpm = 0.0        # turbina, 0..1
+var heat = 0.1       # reator, 0..1
+var reactor_on = false
+var scram = 0.0
+var relief = 0.0
+var sw = {"bat": false, "fuel": false, "hyd": false, "reactor": false, "guard": false, "locks": false, "light": true}
+var lit = false
+var starter = 0.0
+var cold = true
+var look_h = 0.0
+var look_p = 0.0
+var E = {"legs": 1.0 / 3.0, "arms": 1.0 / 3.0, "gun": 1.0 / 3.0}
+var sec = {"cockpit": 100.0, "legs": 100.0, "armL": 100.0, "armR": 100.0}
+# soco
+var punch_s = "idle"
+var punch_c = 0.0
+var punch_t = 0.0
+var punch_crel = 0.0
+var block = 0.0
+var gun_cd = 0.0
+var firing = false
+var shake = 0.0
+var neural = 0.0
+var roll = 0.0
+var alarm_t = 0.0
+var aim = 0.0
+var h = 0.0
+var guard = 0.0
+var guard_hold = 0.0
+var guard_manual = false
+var body_y = 0.0
+var last_leg = null
+var step_rest = 0.0
+var gf = 0.55
+var v_inst = 0.0
+var bob_y = 0.0
+var bob_v = 0.0
+var rise = 0.0
+var sway = 0.0
+var sway_v = 0.0
+var nod = 0.0
+var nod_v = 0.0
+var arm_swing = 0.0
+var pend_f = 0.0
+var pend_fv = 0.0
+var pend_l = 0.0
+var pend_lv = 0.0
+var msg_big = ""
+var msg_sub = ""
+var msg_t = 0.0
+var in_range = false
+var latched = 0
+var wave = 0
+var wave_state = "cold"
+var wave_t = 4.0
+var wave_clock = 0.0
+var to_spawn_crawlers = 0
+var crawler_spawn_t = 0.0
+var colossus_queue = []
+var crawlers = []
+var colossi = []
+var kills_crawlers = 0
+var kills_colossi = 0
+var threat = false
