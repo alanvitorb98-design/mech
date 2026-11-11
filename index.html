@@ -55,6 +55,8 @@ body { font-family: var(--f-mono); }
 .stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; font-size: 14px; margin: 10px 0 20px; font-variant-numeric: tabular-nums; }
 #mechView { float: right; width: 170px; height: 250px; margin: 0 0 8px 14px; }
 @media (max-width: 560px) { #mechView { display: none; } }
+.quick { display: block; margin: 0 0 14px; cursor: pointer; }
+.quick input { accent-color: var(--amber); vertical-align: middle; margin-right: 6px; }
 #touchWarn { display: none; color: var(--alarm); font-size: 13px; margin-bottom: 12px; }
 @media (hover: none) and (pointer: coarse) { #touchWarn { display: block; } }
 @media (prefers-reduced-motion: reduce) { #msg { transition: none; } }
@@ -80,10 +82,14 @@ body { font-family: var(--f-mono); }
       <kbd>Q</kbd><span>Levantar ou baixar a guarda (sobe sozinha com Colosso por perto)</span>
       <kbd>Espaço</kbd><span>Canhão de ombro (esquenta o reator)</span>
       <kbd>Segurar 1 / 2 / 3</kbd><span>Puxar energia pra pernas, braços ou arma</span>
+      <kbd>Shift + mouse</kbd><span>Olhar pela cabine sem girar o torso</span>
+      <kbd>F</kbd><span>Acionar a chave ou botão que está na mira</span>
       <kbd>M</kbd><span>Liga e desliga o som</span>
       <kbd>Esc</kbd><span>Pausa</span>
     </div>
     <p>O Colosso avisa antes de atacar: o peito brilha e ele se agacha antes da investida, ou ergue o braço antes da pancada. Um soco carregado no meio da investida derruba ele. Os rastejantes agarram nas pernas: pise neles ou atire olhando pra baixo.</p>
+    <p>O mech começa desligado. O painel de partida fica à sua esquerda: segure Shift e olhe pra ele. A luz âmbar mostra a próxima chave. Ordem: bateria, combustível, partida da turbina, hidráulica, reator (abra a tampa antes) e travas das pernas. Se o reator superaquecer, ele desliga e você precisa religar a chave depois que esfriar.</p>
+    <label class="note quick"><input type="checkbox" id="quickStart"> Pular a partida a frio</label>
     <button class="btn" id="startBtn" type="button" disabled>Carregando…</button>
     <div class="note" id="loadNote">Carregando modelos 3D.</div>
     <div class="note">Use fones. O som faz parte do painel.</div>
@@ -679,7 +685,10 @@ function newState() {
     phase: 'menu', time: 0,
     pos: new THREE.Vector2(0, 0), push: new THREE.Vector2(), yaw: 0, v: 0, w: 0,
     t: 0, tVel: 0, tTarget: 0, p: -.02, pVel: 0, pTarget: -.02,
-    P: 0, rpm: 0, heat: .1, reactorOn: true, scram: 0, relief: 0,
+    P: 0, rpm: 0, heat: .1, reactorOn: false, scram: 0, relief: 0,
+    // chaves do painel de partida (o mech começa frio)
+    sw: { bat: false, fuel: false, hyd: false, reactor: false, guard: false, locks: false, light: true },
+    lit: false, starter: 0, cold: true, lookH: 0, lookP: 0,
     E: { legs: 1 / 3, arms: 1 / 3, gun: 1 / 3 },
     sec: { cockpit: 100, legs: 100, armL: 100, armR: 100 },
     punch: { s: 'idle', c: 0, t: 0, cRel: 0, hitDone: false },
@@ -688,7 +697,7 @@ function newState() {
     aim: 0, h: 0, guard: 0, guardHold: 0, guardManual: false, bodyY: 0, lastLeg: null,
     stepRest: 0, gf: .55, vInst: 0, bobY: 0, bobV: 0, rise: 0, sway: 0, swayV: 0, nod: 0, nodV: 0, armSwing: 0,
     pend: { f: 0, fv: 0, l: 0, lv: 0 }, msgBig: '', msgSub: '', msgT: 0, inRange: false, latched: 0,
-    wave: 0, waveState: 'intro', waveT: 4, waveClock: 0, toSpawnCrawlers: 0, crawlerSpawnT: 0, colossusQueue: [],
+    wave: 0, waveState: 'cold', waveT: 4, waveClock: 0, toSpawnCrawlers: 0, crawlerSpawnT: 0, colossusQueue: [],
     crawlers: [], colossi: [],
     kills: { crawlers: 0, colossi: 0 },
     threat: false
@@ -711,6 +720,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') e.preventDefault();
   keys[e.code] = true;
   if (e.code === 'KeyQ' && S && S.phase === 'play') S.guardManual = !S.guardManual;
+  if (e.code === 'KeyF' && !e.repeat && S && S.phase === 'play') useSwitch();
   if (e.code === 'KeyM' && AC) { muted = !muted; snd.master.gain.setTargetAtTime(muted ? 0 : .85, AC.currentTime, .05); }
   if ((e.code === 'KeyP' || (e.code === 'Escape' && !locked)) && S && S.phase === 'play') pauseGame();
 });
@@ -733,6 +743,11 @@ addEventListener('mousemove', e => {
   // alguns navegadores mandam um salto enorme logo depois de travar o ponteiro
   if (performance.now() - lockAt < 120 || Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) return;
   const k = .0021;
+  if (keys.ShiftLeft || keys.ShiftRight) { // olhar solto: só a cabeça do piloto, o torso fica
+    S.lookH = clamp(S.lookH - e.movementX * k, -1.7, 1.7);
+    S.lookP = clamp(S.lookP - e.movementY * k, -1.1, 1.1);
+    return;
+  }
   S.aim = clamp(S.aim - e.movementX * k, -2.4, 2.4);
   S.pTarget = clamp(S.pTarget - e.movementY * k, -1.5, .32);
 });
@@ -785,7 +800,8 @@ function startGame() {
   crawlerMeshesAll.length = 0;
   legs.forEach(l => { l.x = l.side * 3.6; l.z = -.5; l.yaw = 0; l.y = 0; l.stepping = false; });
   $('startScreen').hidden = true; $('endScreen').hidden = true; $('pauseScreen').hidden = true;
-  showMsg('PARTIDA', 'Turbina girando. Pressão subindo.', 3.5);
+  if ($('quickStart').checked) { quickStart(S); showMsg('PARTIDA', 'Turbina girando. Pressão subindo.', 3.5); }
+  else showMsg('MECH DESLIGADO', 'Segure Shift e olhe pro painel à esquerda. Mire na chave âmbar e aperte F.', 7);
   tryLock();
   last = performance.now();
 }
@@ -916,6 +932,7 @@ function spawnCrawlerGroup(n) {
   }
 }
 function updateWaves(dt) {
+  if (S.waveState === 'cold') return; // espera a partida a frio
   if (S.waveState === 'intro' || S.waveState === 'break') {
     S.waveT -= dt;
     if (S.waveT <= 0) {
@@ -973,17 +990,25 @@ function updateSystems(dt) {
   S.heat += (S.punch.s === 'charge' ? .03 : 0) * dt;
   S.heat = Math.max(0, S.heat - (S.reactorOn ? .1 : .22) * dt);
   if (S.reactorOn && S.heat >= 1) {
-    S.reactorOn = false; S.scram = 5;
-    showMsg('SCRAM', 'Reator superaqueceu. Sem energia elétrica por 5 s.', 3);
+    S.reactorOn = false; S.sw.reactor = false; S.scram = 5;
+    showMsg('SCRAM', 'Reator superaqueceu e desligou. Espere esfriar e religue.', 3);
     sfx.clank(1.5); sfx.hiss(1.4, 1.8);
   }
-  if (!S.reactorOn) { S.scram -= dt; if (S.scram <= 0) { S.reactorOn = true; showMsg('REATOR ONLINE', '', 1.5); } }
+  if (S.scram > 0) { S.scram -= dt; if (S.scram <= 0) { S.scram = 0; showMsg('REATOR FRIO', 'Pode religar a chave do reator (5)', 3); } }
+  S.reactorOn = S.sw.reactor && S.scram <= 0;
+  // partida da turbina: o motor de arranque gira por alguns segundos, depois acende
+  if (S.starter > 0) {
+    S.starter -= dt;
+    if (!S.sw.bat || !S.sw.fuel) { S.starter = 0; showMsg('PARTIDA ABORTADA', !S.sw.bat ? 'Sem bateria' : 'Sem combustível', 2); }
+    else if (S.starter <= 0) { S.lit = true; showMsg('TURBINA ACESA', S.cold ? nextStepHint() : '', 2.5); sfx.hiss(.6, .9); sfx.clank(.4); }
+  }
+  if (S.lit && !S.sw.fuel) { S.lit = false; showMsg('TURBINA APAGOU', 'Combustível cortado', 2.5); }
   // turbina: acelera quando a pressão cai
   const moving = Math.abs(S.v) > .3 || Math.abs(S.w) > .02;
-  const rpmTarget = S.P < 170 || S.punch.s === 'charge' || moving ? 1 : .42;
+  const rpmTarget = !S.lit ? (S.starter > 0 ? .3 : 0) : S.P < 170 || S.punch.s === 'charge' || moving ? 1 : .42;
   S.rpm += (rpmTarget - S.rpm) * Math.min(1, dt / 1.6);
   // hidráulica
-  const inflow = S.rpm * 62;
+  const inflow = S.sw.hyd ? S.rpm * 62 : 0;
   let use = Math.abs(S.v) * 1.7 + Math.abs(S.w) * 14;
   if (S.punch.s === 'charge') use += 32;
   if (S.block > 0 && mouse.r) use += 5;
@@ -998,8 +1023,9 @@ function updateMotion(dt) {
   const E = S.E, legsHP = S.sec.legs / 100, p = pf();
   const elec = S.reactorOn ? 1 : .55;
   const legF = (.45 + 1.15 * E.legs) * (.45 + .55 * legsHP) * elec;
-  const fwdIn = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-  const turnIn = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0);
+  const free = S.sw.locks ? 1 : 0; // com as travas das pernas presas o mech não anda
+  const fwdIn = ((keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0)) * free;
+  const turnIn = ((keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0)) * free;
   const vmax = 7.5 * legF * p, vrev = 2.8 * legF * p;
   const vT = fwdIn > 0 ? vmax : fwdIn < 0 ? -vrev : 0;
   const acc = (fwdIn ? 1.05 : .75) * (.4 + .6 * p);
@@ -1026,6 +1052,7 @@ function updateMotion(dt) {
   // cabeça/pitch: mais leve
   S.aim = clamp(S.aim, S.t - .7, S.t + .7); S.h = S.aim - S.t; // pescoço: até 40 graus pra cada lado
   S.p = lerp(S.p, S.pTarget, 1 - Math.exp(-22 * dt));
+  if (!keys.ShiftLeft && !keys.ShiftRight) { const kk = 1 - Math.exp(-7 * dt); S.lookH = lerp(S.lookH, 0, kk); S.lookP = lerp(S.lookP, 0, kk); }
   // roll pela inércia
   S.roll = lerp(S.roll, -S.w * .6 - S.tVel * .025, Math.min(1, dt * 3));
 }
@@ -1316,10 +1343,10 @@ function updateFx(dt) {
   const f = blur > .08 ? `blur(${blur.toFixed(2)}px) saturate(${(1 - S.neural * .5).toFixed(2)})` : '';
   if (glCanvas.style.filter !== f) glCanvas.style.filter = f;
   // luzes do cockpit
-  const alarm = !S.reactorOn || S.sec.cockpit < 30 || S.threat;
+  const alarm = S.scram > 0 || S.sec.cockpit < 30 || S.threat;
   S.alarmT += dt;
   alarmLight.intensity = alarm ? (Math.sin(S.alarmT * 7) > 0 ? 3 : .3) : 0;
-  cabinLight.intensity = S.reactorOn ? 2.2 : .5 + Math.random() * .3;
+  cabinLight.intensity = !S.sw.light ? 0 : S.reactorOn ? 2.2 : S.sw.bat ? .5 + Math.random() * .3 : 0;
   if (S.msgT > 0) S.msgT -= dt;
   S.inRange = false;
   for (const col of S.colossi) { if (col.state === 'dead') continue; const d = Math.hypot(col.x - S.pos.x, col.z - S.pos.y); if (d < 48 && Math.abs(angleTo(col.x, col.z)) < 30 * DEG) S.inRange = true; }
@@ -1330,13 +1357,13 @@ function updateAudio() {
   const r = S.rpm;
   // bomba hidráulica: barulho alto e constante, carga muda com a pressão
   const load = clamp((S.punch.s === 'charge' ? .7 : 0) + Math.abs(S.v) / 10 + (S.P < 120 ? .3 : 0), 0, 1);
-  setG(snd.pump.bus, playing ? (.28 + .25 * r + .18 * load) : 0, .15);
+  setG(snd.pump.bus, playing && S.sw.hyd && r > .05 ? (.28 + .25 * r + .18 * load) * Math.min(1, r * 3) : 0, .15);
   setF(snd.pump.p1.frequency, 30 + 16 * r + 6 * load); setF(snd.pump.p2.frequency, (30 + 16 * r + 6 * load) * 2.01);
   setF(snd.pump.p3.frequency, (30 + 16 * r + 6 * load) * 3.02);
   setF(snd.pump.plfo.frequency, 5 + 9 * r);
   setF(snd.pump.lp.frequency, 220 + 300 * load + 120 * r);
   // turbina
-  setG(snd.turb.bus, playing ? (.08 + .2 * r) : 0, .4);
+  setG(snd.turb.bus, playing ? (.08 + .2 * r) * Math.min(1, r * 4) : 0, .4);
   setF(snd.turb.tbp.frequency, 1400 + 3200 * r, .3); setF(snd.turb.tw.frequency, 500 + 1500 * r, .3); setF(snd.turb.tw2.frequency, 1300 + 3400 * r, .3); setF(snd.turb.tr.frequency, 26 + 30 * r, .3);
   // reator
   setG(snd.re.bus, playing ? (S.reactorOn ? .32 + S.heat * .12 : .03) : 0, .2);
@@ -1525,13 +1552,226 @@ const panelT = makePanel(1024, 128, 3.3, .4125, drawTop);
 panelT.grp.position.set(0, 1.12, -2.12); panelT.grp.rotation.set(.38, 0, 0);
 const panels = [panelL, panelR, panelT];
 let panelTick = 0;
+
+/* ============================== CABINE: ESTRUTURA, PLACAS E CHAVES ==============================
+   Texturas geradas no Higgsfield (assets/texturas): chapa pintada com rebites e placas de aviso. */
+const texLoader = new THREE.TextureLoader();
+const plateMat = new THREE.MeshStandardMaterial({ color: 0x8a8a78, roughness: .85, metalness: .3 });
+texLoader.load('assets/texturas/chapa.jpg', t => {
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  plateMat.map = t; plateMat.color.setHex(0xb8b8a8); plateMat.needsUpdate = true;
+}, undefined, () => {});
+// caixa com a chapa repetida na escala certa (um quadro de rebites a cada ~0,7 m)
+function plateBox(w, h, d, x, y, z, parent) {
+  const geo = new THREE.BoxGeometry(w, h, d), uv = geo.attributes.uv, n = geo.attributes.normal;
+  for (let i = 0; i < uv.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i));
+    const su = ax > .5 ? d : w, sv = ay > .5 ? d : h;
+    uv.setXY(i, uv.getX(i) * su / 2.1, uv.getY(i) * sv / 2.1);
+  }
+  const m = new THREE.Mesh(geo, plateMat); m.position.set(x, y, z); (parent || cockpit).add(m); return m;
+}
+{
+  const F = metalDark;
+  // paredes, teto e consoles laterais com a chapa rebitada
+  plateBox(6.4, .1, 3.4, 0, 1.9, -.6);
+  plateBox(.12, 3.6, 3.4, -3.12, -1.3, -.4); plateBox(.12, 3.6, 3.4, 3.12, -1.3, -.4);
+  plateBox(.9, .9, 1.6, -2.45, -1.35, -.55); plateBox(.9, .9, 1.6, 2.45, -1.35, -.55);
+  plateBox(6.4, 3.6, .12, 0, .1, 1.25);
+  // vidros laterais acima das paredes, com montantes (nariz de bombardeiro)
+  for (const sx of [-1, 1]) {
+    for (const z of [-1.55, -.55, .45]) box(.14, 1.55, .14, F, sx * 2.98, 1.0, z);
+    box(.16, .14, 3.1, F, sx * 2.98, .25, -.55); box(.16, .16, 3.1, F, sx * 2.98, 1.75, -.55);
+  }
+  // travessa no vidro de cima e nervuras extras no nariz
+  box(5.4, .09, .09, F, 0, .78, -2.3);
+  for (const x of [-1.9, 1.9]) seg(new THREE.Vector3(x, -1.35, -2.3), new THREE.Vector3(x * .95, -2.9, .5), .08, F);
+  // placas de aviso (atlas 2x2)
+  const placTex = texLoader.load('assets/texturas/placas.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; }, undefined, () => {});
+  const placard = (i, sz, x, y, z, ry, rx) => {
+    const geo = new THREE.PlaneGeometry(sz, sz), uv = geo.attributes.uv, cu = i % 2, r = Math.floor(i / 2);
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, (cu + uv.getX(k)) / 2, (1 - r + uv.getY(k)) / 2);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: placTex, roughness: .7, metalness: .2, color: 0xcfc8b8 }));
+    m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0, 'YXZ'); cockpit.add(m); return m;
+  };
+  placard(0, .42, -3.05, .9, -1.0, Math.PI / 2);          // perigo: alta pressão hidráulica
+  placard(1, .36, 2.0, -1.12, -2.06, 0);                  // não pisar no vidro (no peitoril)
+  placard(2, .34, -2.0, 1.55, -2.02, 0);                  // M-40 cabine nº 3 (na viga do teto)
+  placard(3, .4, 3.05, .9, -1.0, -Math.PI / 2);           // reator: não abrir em operação
+}
+
+// ---- painel de partida (console da esquerda) ----
+const SWITCHES = [
+  { id: 'bat', label: 'BATERIA', n: '1' },
+  { id: 'fuel', label: 'COMBUST.', n: '2' },
+  { id: 'start', label: 'PARTIDA', n: '3', kind: 'button' },
+  { id: 'hyd', label: 'HIDRÁUL.', n: '4' },
+  { id: 'reactor', label: 'REATOR', n: '5', kind: 'guarded' },
+  { id: 'locks', label: 'TRAVAS', n: '6' },
+  { id: 'light', label: 'LUZ', n: '' }
+];
+const STEP_TEXT = {
+  bat: 'Chave 1: bateria', fuel: 'Chave 2: bomba de combustível', start: 'Botão 3: partida da turbina',
+  hyd: 'Chave 4: bomba hidráulica', reactor: 'Chave 5: reator (abra a tampa e ligue)', locks: 'Chave 6: soltar as travas das pernas'
+};
+function stepDone(id, st) {
+  const w = st.sw;
+  return id === 'bat' ? w.bat : id === 'fuel' ? w.fuel : id === 'start' ? st.lit : id === 'hyd' ? w.hyd : id === 'reactor' ? st.reactorOn : id === 'locks' ? w.locks : true;
+}
+function nextStep(st) { for (const id of ['bat', 'fuel', 'start', 'hyd', 'reactor', 'locks']) if (!stepDone(id, st)) return id; return null; }
+function nextStepHint() { const n = nextStep(S); return n ? 'Próximo: ' + STEP_TEXT[n] : ''; }
+function quickStart(st) {
+  Object.assign(st.sw, { bat: true, fuel: true, hyd: true, reactor: true, guard: true, locks: true });
+  st.lit = true; st.reactorOn = true; st.rpm = .42; st.P = 150; st.cold = false; st.waveState = 'intro';
+}
+const swPanel = new THREE.Group(); swPanel.rotation.order = 'YXZ';
+swPanel.position.set(-1.62, -.56, -.82); swPanel.rotation.set(-.42, 1.05, 0); cockpit.add(swPanel);
+{
+  const W = 1.16, H = .62;
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 548; const x = c.getContext('2d');
+  const gr = x.createLinearGradient(0, 0, 0, 548); gr.addColorStop(0, '#4a4b38'); gr.addColorStop(1, '#2a2b20');
+  x.fillStyle = gr; x.fillRect(0, 0, 1024, 548);
+  x.globalAlpha = .08; x.strokeStyle = '#e0d6b8';
+  for (let i = 0; i < 80; i++) { x.beginPath(); const yy = (i * 47) % 548, xx = (i * 151) % 1024; x.moveTo(xx, yy); x.lineTo(xx + 30 + (i % 5) * 12, yy + (i % 3) - 1); x.stroke(); }
+  x.globalAlpha = 1;
+  x.fillStyle = '#d8ccaa'; x.font = `700 46px ${STEN}`; x.textAlign = 'left'; x.textBaseline = 'top';
+  x.fillText('PARTIDA · SISTEMAS', 34, 22);
+  x.font = `600 22px ${MONO}`; x.fillStyle = '#a39a83'; x.fillText('ORDEM 1 A 6 · LUZ ÂMBAR = PRÓXIMA', 520, 36);
+  SWITCHES.forEach((sw, i) => {
+    const cx = 512 + (i - 3) * 128;
+    x.fillStyle = '#16150f'; x.fillRect(cx - 56, 92, 112, 56);
+    x.fillStyle = '#d8ccaa'; x.font = `700 40px ${STEN}`; x.textAlign = 'center'; x.fillText(sw.n || '·', cx, 98);
+    x.font = `700 25px ${STEN}`; x.fillStyle = '#d8ccaa'; x.fillText(sw.label, cx, 484);
+    x.font = `600 17px ${MONO}`; x.fillStyle = '#8f8670';
+    x.fillText(sw.kind === 'button' ? 'APERTAR' : 'LIG', cx, 168); if (sw.kind !== 'button') x.fillText('DESL', cx, 372);
+  });
+  for (const [rx, ry] of [[20, 20], [1004, 20], [20, 528], [1004, 528]]) { const rg = x.createRadialGradient(rx - 3, ry - 3, 0, rx, ry, 9); rg.addColorStop(0, '#9c947e'); rg.addColorStop(1, '#25231e'); x.fillStyle = rg; x.beginPath(); x.arc(rx, ry, 9, 0, 7); x.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ map: tex, roughness: .8, metalness: .2 }));
+  swPanel.add(face);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(W + .08, H + .08, .22), metalDark); back.position.z = -.115; swPanel.add(back);
+}
+const swHits = [];
+const leverGeo = new THREE.BoxGeometry(.026, .026, .13); leverGeo.translate(0, 0, .065);
+const swBaseGeo = new THREE.CylinderGeometry(.04, .045, .03, 14); swBaseGeo.rotateX(Math.PI / 2);
+const lampGeo = new THREE.SphereGeometry(.024, 12, 8);
+SWITCHES.forEach((sw, i) => {
+  const g = new THREE.Group(); g.position.set((i - 3) * (1.16 / 1024 * 128), .02, 0); swPanel.add(g);
+  const base = new THREE.Mesh(swBaseGeo, metal); base.position.z = .015; g.add(base);
+  sw.mat = new THREE.MeshStandardMaterial({ color: sw.kind === 'button' ? 0x8a1a10 : 0xb8b4a4, roughness: .4, metalness: sw.kind === 'button' ? .1 : .7, emissive: 0x000000 });
+  if (sw.kind === 'button') {
+    sw.lever = new THREE.Mesh(new THREE.CylinderGeometry(.045, .05, .05, 16).rotateX(Math.PI / 2).translate(0, 0, .045), sw.mat);
+  } else sw.lever = new THREE.Mesh(leverGeo, sw.mat);
+  sw.lever.position.z = .02; g.add(sw.lever);
+  sw.lampMat = new THREE.MeshBasicMaterial({ color: 0x2a2620, fog: false });
+  const lamp = new THREE.Mesh(lampGeo, sw.lampMat); lamp.position.set(0, -.165, .015); g.add(lamp);
+  if (sw.kind === 'guarded') { // tampa vermelha articulada por cima da chave do reator
+    sw.cover = new THREE.Group(); sw.cover.position.set(0, .085, .02); g.add(sw.cover);
+    const cm = new THREE.Mesh(new THREE.BoxGeometry(.11, .17, .1), new THREE.MeshStandardMaterial({ color: 0x9a1c12, roughness: .6, metalness: .2, transparent: true, opacity: .92 }));
+    cm.position.set(0, -.085, .05); sw.cover.add(cm);
+  }
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(.13, .3, .2), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.set(0, -.05, .08); hit.userData.sw = sw; g.add(hit); swHits.push(hit);
+  sw.anim = 0;
+});
+
+// ---- alavancas de energia (console da direita) e manches ----
+const quadrant = new THREE.Group(); quadrant.rotation.order = 'YXZ';
+quadrant.position.set(1.9, -.82, -1.0); quadrant.rotation.set(-.3, -1.02, 0); cockpit.add(quadrant);
+plateBox(.62, .2, .4, 0, 0, 0, quadrant);
+box(.5, .02, .3, metalDark, 0, .105, 0, quadrant);
+const qLevers = [0, 1, 2].map(i => {
+  const pv = new THREE.Group(); pv.position.set(-.16 + i * .16, .1, 0); quadrant.add(pv);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(.014, .018, .38, 8), metal); rod.position.y = .19; pv.add(rod);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(.045, 12, 8), new THREE.MeshStandardMaterial({ color: [0x1b1a16, 0x1b1a16, 0x7a1810][i], roughness: .6 })); knob.position.y = .39; knob.scale.set(1, .8, 1); pv.add(knob);
+  return pv;
+});
+const sticks = [-1, 1].map(side => {
+  const base = new THREE.Group(); base.position.set(side * .78, -1.55, -.6); cockpit.add(base);
+  box(.24, .08, .24, metalDark, 0, 0, 0, base);
+  const pv = new THREE.Group(); pv.position.y = .05; base.add(pv);
+  const boot = new THREE.Mesh(new THREE.CylinderGeometry(.04, .09, .12, 10), hoseMat); boot.position.y = .05; pv.add(boot);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(.018, .022, .32, 8), metal); rod.position.y = .2; pv.add(rod);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(.034, .03, .15, 10), hoseMat); grip.position.y = .42; pv.add(grip);
+  const trig = new THREE.Mesh(new THREE.BoxGeometry(.02, .04, .03), new THREE.MeshStandardMaterial({ color: 0x8a1a10 })); trig.position.set(0, .44, -.035); pv.add(trig);
+  return pv;
+});
+
+// ---- mira nas chaves e acionamento ----
+const swRay = new THREE.Raycaster(); swRay.far = 3.4;
+const _center = new THREE.Vector2(0, 0);
+let hoveredSw = null;
+function clickSnd(heavy) {
+  if (!snd.ok) return;
+  oneNoise(.05, 'bandpass', heavy ? 1600 : 3200, 3, heavy ? .35 : .22, .04);
+  oneTone('square', heavy ? 140 : 220, heavy ? 70 : 120, .05, .07);
+}
+function useSwitch() {
+  const sw = hoveredSw; if (!sw) return;
+  const W = S.sw; let heavy = false;
+  switch (sw.id) {
+    case 'bat': W.bat = !W.bat; showMsg(W.bat ? 'BATERIA LIGADA' : 'BATERIA DESLIGADA', W.bat && S.cold ? nextStepHint() : '', 2.5); break;
+    case 'fuel': W.fuel = !W.fuel; showMsg(W.fuel ? 'COMBUSTÍVEL ABERTO' : 'COMBUSTÍVEL CORTADO', W.fuel && S.cold ? nextStepHint() : '', 2.5); break;
+    case 'start':
+      sw.anim = 1; heavy = true;
+      if (S.lit) { sfx.beep(); break; }
+      if (!W.bat) { showMsg('SEM BATERIA', 'Ligue a chave 1 primeiro', 2.5); break; }
+      if (!W.fuel) { showMsg('SEM COMBUSTÍVEL', 'Abra a chave 2 primeiro', 2.5); break; }
+      if (S.starter > 0) break;
+      S.starter = 3.5; showMsg('PARTIDA', 'Motor de arranque girando a turbina…', 3);
+      if (snd.ok) oneTone('sawtooth', 90, 520, .05, 3.4);
+      break;
+    case 'hyd': W.hyd = !W.hyd; showMsg(W.hyd ? 'BOMBA HIDRÁULICA LIGADA' : 'BOMBA HIDRÁULICA DESLIGADA', W.hyd && S.cold ? (S.lit ? nextStepHint() : 'Sem turbina acesa a pressão não sobe') : '', 2.5); break;
+    case 'reactor':
+      if (!W.guard) { W.guard = true; heavy = true; showMsg('TAMPA ABERTA', 'Aperte F de novo pra ligar o reator', 2.5); break; }
+      if (W.reactor) { W.reactor = false; S.reactorOn = false; showMsg('REATOR DESLIGADO', 'Esfriando. Braços e canhão sem força total.', 2.5); break; }
+      if (S.scram > 0) { sfx.beep(); showMsg('REATOR TRAVADO', `Esfriando: ${Math.ceil(S.scram)} s`, 1.5); break; }
+      if (!W.bat && !S.lit) { showMsg('SEM ENERGIA', 'O reator precisa da bateria pra partir', 2.5); break; }
+      W.reactor = true; S.reactorOn = true; heavy = true; showMsg('REATOR ONLINE', S.cold ? nextStepHint() : '', 2.5); break;
+    case 'locks': W.locks = !W.locks; heavy = true; showMsg(W.locks ? 'TRAVAS SOLTAS' : 'PERNAS TRAVADAS', '', 2); break;
+    case 'light': W.light = !W.light; break;
+  }
+  clickSnd(heavy);
+}
+function updateCockpitProps(dt) {
+  // o que está no centro da mira
+  swRay.setFromCamera(_center, camera);
+  const hit = swRay.intersectObjects(swHits, false)[0];
+  hoveredSw = hit ? hit.object.userData.sw : null;
+  if (S.cold && !nextStep(S)) {
+    S.cold = false; S.waveState = 'intro'; S.waveT = 5;
+    showMsg('MECH PRONTO', 'Contatos se aproximando. Boa sorte, piloto.', 3.5);
+  }
+  const next = S.cold ? nextStep(S) : null, blink = Math.sin(S.time * 6) > 0;
+  for (const sw of SWITCHES) {
+    const on = sw.id === 'start' ? S.lit || S.starter > 0 : sw.id === 'reactor' ? S.sw.reactor : S.sw[sw.id];
+    if (sw.kind === 'button') { sw.anim = Math.max(0, sw.anim - dt * 5); sw.lever.position.z = .02 - sw.anim * .03; }
+    else sw.lever.rotation.x = lerp(sw.lever.rotation.x, on ? -.55 : .55, 1 - Math.exp(-30 * dt));
+    if (sw.cover) sw.cover.rotation.x = lerp(sw.cover.rotation.x, S.sw.guard ? -1.9 : 0, 1 - Math.exp(-10 * dt));
+    sw.mat.emissive.setHex(sw === hoveredSw ? 0x6a5a30 : 0x000000);
+    let col = 0x2a2620;
+    if (sw.id === 'reactor' && S.scram > 0) col = blink ? 0xff2a10 : 0x3a0a04;
+    else if (sw.id === 'start' && S.starter > 0) col = blink ? 0xffb547 : 0x4a3412;
+    else if (sw.id === next) col = blink ? 0xffb547 : 0x4a3412;
+    else if (on) col = 0x6dff5a;
+    if (!S.sw.bat && !S.reactorOn && sw.id !== 'bat' && col !== 0x2a2620 && sw.id !== next) col = 0x1a3a14;
+    sw.lampMat.color.setHex(col);
+  }
+  // alavancas de energia acompanham a distribuição (1/2/3) e os manches os comandos
+  const E = S.E;
+  [E.legs, E.arms, E.gun].forEach((v, i) => { qLevers[i].rotation.x = lerp(qLevers[i].rotation.x, .7 - v * 1.4, 1 - Math.exp(-12 * dt)); });
+  const fw = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), tr = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0);
+  const kk = 1 - Math.exp(-10 * dt);
+  sticks[0].rotation.x = lerp(sticks[0].rotation.x, -fw * .35, kk); sticks[0].rotation.z = lerp(sticks[0].rotation.z, tr * .25, kk);
+  sticks[1].rotation.x = lerp(sticks[1].rotation.x, (mouse.l ? -.25 : 0) + (mouse.r ? .2 : 0), kk);
+}
 function drawPanels(all) {
   for (let i = 0; i < panels.length; i++) {
     if (!all && i !== panelTick % 3) continue;
     const P = panels[i]; g = P.ctx; g.setTransform(1, 0, 0, 1, 0, 0); P.draw(); P.tex.needsUpdate = true;
   }
   panelTick++;
-  const lit = S.reactorOn ? 1 : .4 + Math.random() * .25;
+  const lit = S.reactorOn ? 1 : S.sw.bat ? .4 + Math.random() * .25 : .07;
   for (const P of panels) P.mat.color.setScalar(lit);
   sightLampMat.color.setHex(S.inRange ? 0x9dff7a : 0x3a2a14);
 }
@@ -1547,7 +1787,7 @@ function applyCamera() {
   const sh = S.shake * S.shake;
   cockpit.position.set((Math.random() - .5) * sh * .3, 8 + (Math.random() - .5) * sh * .3, -4.2);
   // o capacete compensa boa parte do balanço do corpo, pra mira ficar firme
-  head.rotation.set(S.p - S.nod * .75 + (Math.random() - .5) * sh * .006, S.h, -lean * .75 + (Math.random() - .5) * sh * .008);
+  head.rotation.set(S.p + S.lookP - S.nod * .75 + (Math.random() - .5) * sh * .006, S.h + S.lookH, -lean * .75 + (Math.random() - .5) * sh * .008);
   pendulum.rotation.x = S.pend.f; pendulum.rotation.z = S.pend.l;
   pendulum2.rotation.x = S.pend.f * .7; pendulum2.rotation.z = S.pend.l * .7;
 }
@@ -1564,6 +1804,7 @@ function frame(now) {
     updateColossi(dt);
     updateCrawlers(dt);
     updateWaves(dt);
+    updateCockpitProps(dt);
     updateFx(dt);
     if (S.sec.cockpit <= 0) endGame(false);
   } else if (S && S.phase !== 'end') { /* pausa */ } else if (!S) {
@@ -1575,7 +1816,7 @@ function frame(now) {
 }
 // estado do menu: mech parado, só pra ter fundo
 const S0 = newState();
-S0.P = 160; S0.rpm = .4;
+quickStart(S0); S0.P = 160; S0.rpm = .4;
 { const prev = S; S = S0; updateLegs(0); updatePunch(0); drawPanels(true); S = prev; }
 requestAnimationFrame(frame);
 })();

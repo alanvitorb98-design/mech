@@ -29,6 +29,8 @@ Precisa de teclado e mouse. Fones são recomendados, porque o som faz parte do p
 | Q | Levantar ou baixar a guarda |
 | Espaço | Canhão de ombro (esquenta o reator) |
 | Segurar 1 / 2 / 3 | Puxar energia pra pernas, braços ou arma |
+| Shift + mouse | Olhar pela cabine sem girar o torso |
+| F | Acionar a chave ou botão na mira |
 | M | Liga e desliga o som |
 | Esc | Pausa |
 
@@ -42,11 +44,25 @@ Precisa de teclado e mouse. Fones são recomendados, porque o som faz parte do p
 - Som contínuo gerado no navegador com Web Audio.
 - 5 ondas.
 
+## Partida a frio
+
+O mech começa desligado. O painel de partida fica no console da esquerda (segure Shift pra olhar pra ele, mire na chave e aperte F). A lâmpada âmbar pisca na próxima chave:
+
+1. Bateria
+2. Bomba de combustível
+3. Partida da turbina (o motor de arranque gira por uns segundos até acender)
+4. Bomba hidráulica
+5. Reator (abra a tampa vermelha e ligue)
+6. Travas das pernas
+
+As ondas só começam depois disso. As chaves continuam valendo durante a luta: desligar o reator esfria mais rápido, cortar o combustível apaga a turbina, e se o reator superaquecer ele desliga sozinho e precisa ser religado na mão. Há também a chave da luz da cabine. Na tela inicial dá pra marcar "Pular a partida a frio".
+
 ## Modelos e arte conceitual
 
 A arte conceitual e os modelos 3D foram gerados no Higgsfield, com tema e visual próprios:
 
 - `assets/conceito/`: mech M-40, cockpit, Colosso, rastejante e braço.
+- `assets/texturas/`: chapa pintada com rebites (paredes, teto e consoles) e placas de aviso da cabine.
 - `assets/modelos/`: malhas GLB convertidas da arte. O Colosso é cortado em tronco, braços e pernas na hora de carregar, pra continuar animando os avisos de ataque. O antebraço com o punho substitui as caixas dos braços no cockpit. O mech completo aparece girando na tela inicial.
 
 ## Direção
