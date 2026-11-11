@@ -53,6 +53,8 @@ body { font-family: var(--f-mono); }
 .btn:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
 .note { font-size: 12px; color: #a39a83; margin-top: 14px; }
 .stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; font-size: 14px; margin: 10px 0 20px; font-variant-numeric: tabular-nums; }
+#mechView { float: right; width: 170px; height: 250px; margin: 0 0 8px 14px; }
+@media (max-width: 560px) { #mechView { display: none; } }
 #touchWarn { display: none; color: var(--alarm); font-size: 13px; margin-bottom: 12px; }
 @media (hover: none) and (pointer: coarse) { #touchWarn { display: block; } }
 @media (prefers-reduced-motion: reduce) { #msg { transition: none; } }
@@ -65,7 +67,8 @@ body { font-family: var(--f-mono); }
 <div class="overlay" id="startScreen">
   <div class="plate">
     <h1>BORNTOMECH</h1>
-    <div class="tag">Protótipo 0.3 · cockpit de mech de 40 m</div>
+    <div class="tag">Protótipo 0.4 · cockpit de mech de 40 m</div>
+    <canvas id="mechView" width="340" height="500" aria-label="Modelo 3D do mech M-40 girando"></canvas>
     <div id="touchWarn">Este protótipo precisa de teclado e mouse.</div>
     <p>Você está sozinho dentro de 40 metros de aço. Nada responde na hora: as pernas demoram pra embalar, o torso gira como torre de tanque e todo soco precisa de pressão hidráulica. Leia o inimigo e comece a agir antes. Sobreviva a 5 ondas.</p>
     <div class="keys">
@@ -81,7 +84,8 @@ body { font-family: var(--f-mono); }
       <kbd>Esc</kbd><span>Pausa</span>
     </div>
     <p>O Colosso avisa antes de atacar: o peito brilha e ele se agacha antes da investida, ou ergue o braço antes da pancada. Um soco carregado no meio da investida derruba ele. Os rastejantes agarram nas pernas: pise neles ou atire olhando pra baixo.</p>
-    <button class="btn" id="startBtn" type="button">Ligar o mech</button>
+    <button class="btn" id="startBtn" type="button" disabled>Carregando…</button>
+    <div class="note" id="loadNote">Carregando modelos 3D.</div>
     <div class="note">Use fones. O som faz parte do painel.</div>
   </div>
 </div>
@@ -103,8 +107,15 @@ body { font-family: var(--f-mono); }
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-<script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -213,10 +224,20 @@ dust.frustumCulled = false;
 scene.add(dust);
 
 /* ============================== MECH ============================== */
-const metal = new THREE.MeshStandardMaterial({ color: 0x4b473e, roughness: .8, metalness: .45 });
-const metalDark = new THREE.MeshStandardMaterial({ color: 0x2c2a25, roughness: .85, metalness: .4 });
+const metal = new THREE.MeshStandardMaterial({ color: 0x55543a, roughness: .8, metalness: .35 });       // verde-oliva desbotado
+const metalDark = new THREE.MeshStandardMaterial({ color: 0x2d2c23, roughness: .85, metalness: .35 });
 const metalRust = new THREE.MeshStandardMaterial({ color: 0x6a3e26, roughness: .95, metalness: .2 });
 const hoseMat = new THREE.MeshStandardMaterial({ color: 0x161512, roughness: .9 });
+// faixa de perigo pintada à mão, gasta (amarelo sujo e preto), igual à arte conceitual
+const hazardMat = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = '#8f7a2c'; g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#1b1a14';
+  for (let k = -128; k < 256; k += 44) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 22, 0); g.lineTo(k + 150, 128); g.lineTo(k + 128, 128); g.fill(); }
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${60 + Math.random() * 40},${50 + Math.random() * 30},30,${Math.random() * .35})`; g.fillRect(Math.random() * 128, Math.random() * 128, Math.random() * 5, Math.random() * 3); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: .85, metalness: .25 });
+})();
 
 const mech = new THREE.Group(); scene.add(mech);
 const pelvis = new THREE.Mesh(new THREE.BoxGeometry(9.5, 4.5, 6), metal); pelvis.position.set(0, 20, 0); mech.add(pelvis);
@@ -316,7 +337,7 @@ function makeArm(side) {
   a.fore = seg(new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2.7, metalDark);
   a.fist = box(3.5, 3.5, 4.2, metal, 0, 0, 0);
   a.knuckle = box(3.7, 1, 1, metalRust, 0, 0, 0);
-  box(5.4, 3.8, 6.2, metalRust, side * 8.5, -.1, 6.4);          // ombreira
+  box(5.4, 3.8, 6.2, hazardMat, side * 8.5, -.1, 6.4);          // ombreira
   a.rest = new THREE.Vector3(side * 9, -16.3, 6.4);            // braço solto ao lado do corpo
   a.guard = new THREE.Vector3(side * 6.2, -2.6, -7.8);         // guarda alta
   a.pos = a.rest.clone(); a.elbow = new THREE.Vector3(); a.hint = new THREE.Vector3(side * .5, -1, .7);
@@ -329,6 +350,7 @@ function updateArmMesh(a) {
   _v2.subVectors(a.pos, a.elbow).normalize();
   a.fist.position.copy(a.pos); a.fist.quaternion.setFromUnitVectors(Z_NEG, _v2);
   a.knuckle.position.copy(a.pos).addScaledVector(_v2, 2.3); a.knuckle.quaternion.copy(a.fist.quaternion);
+  if (a.model) { a.model.position.copy(a.elbow); a.model.quaternion.setFromUnitVectors(Z_POS, _v2); }
 }
 function moveToward(v, t, step) { _v3.subVectors(t, v); const d = _v3.length(); if (d <= step || d < 1e-5) v.copy(t); else v.addScaledVector(_v3, step / d); }
 // marca fixa no peitoril: mostra pra onde o torso aponta
@@ -345,8 +367,88 @@ const legs = [-1, 1].map(side => ({
   stepping: false, t: 0, dur: 1, sx: 0, sz: 0, syaw: 0, tx: 0, tz: 0, tyaw: 0
 }));
 
+/* ============================== MODELOS 3D ==============================
+   Gerados no Higgsfield a partir da arte conceitual (assets/conceito) e
+   convertidos em malha (assets/modelos). Se não carregarem, o jogo usa as
+   formas simples de antes. */
+const MODELS = {};
+const Z_POS = new THREE.Vector3(0, 0, 1);
+// tira a malha do glTF com a transformação aplicada, em float, nas coordenadas originais (-0.5..0.5)
+function extractModel(gltf, metalness) {
+  let src = null; gltf.scene.updateMatrixWorld(true);
+  gltf.scene.traverse(o => { if (o.isMesh && !src) src = o; });
+  const g0 = src.geometry, n = g0.attributes.position.count, v = new THREE.Vector3();
+  const pos = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    v.fromBufferAttribute(g0.attributes.position, i).applyMatrix4(src.matrixWorld); v.toArray(pos, i * 3);
+    uv[i * 2] = g0.attributes.uv.getX(i); uv[i * 2 + 1] = g0.attributes.uv.getY(i);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(Uint32Array.from(g0.index.array), 1));
+  geo.computeVertexNormals(); geo.computeBoundingBox();
+  const mat = src.material; mat.metalness = metalness; mat.roughness = .85;
+  return { geo, mat, box: geo.boundingBox.clone() };
+}
+// separa os triângulos em partes (para articular uma malha única)
+function splitGeometry(geo, classify, n) {
+  const pos = geo.attributes.position, idx = geo.index.array, c = new THREE.Vector3(), t = new THREE.Vector3();
+  const buckets = Array.from({ length: n }, () => []);
+  for (let k = 0; k < idx.length; k += 3) {
+    c.fromBufferAttribute(pos, idx[k]).add(t.fromBufferAttribute(pos, idx[k + 1])).add(t.fromBufferAttribute(pos, idx[k + 2])).multiplyScalar(1 / 3);
+    buckets[classify(c)].push(idx[k], idx[k + 1], idx[k + 2]);
+  }
+  return buckets.map(ix => { const g = geo.clone(); g.setIndex(ix); return g; });
+}
+function prepColossus(m) {
+  const H = 27, b = m.box, cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2, s = H / (b.max.y - b.min.y);
+  const Y = y => (y - b.min.y) * s, X = x => (x - cx) * s;
+  // braços pendem por fora do corpo; pernas abaixo do quadril
+  const parts = splitGeometry(m.geo, p => {
+    if ((p.x < -.19 || p.x > .17) && p.y > -.46 && p.y < .22) return p.x < 0 ? 1 : 2;
+    if (p.y < -.12) return p.x < 0 ? 3 : 4;
+    return 0;
+  }, 5);
+  for (const g of parts) { g.translate(-cx, -b.min.y, -cz); g.scale(s, s, s); }
+  return { mat: m.mat, torso: parts[0], armL: parts[1], armR: parts[2], legL: parts[3], legR: parts[4],
+    hipY: Y(-.12), hipX: X(.15), waistY: Y(0), shY: Y(.2), shX: X(.25), chestY: Y(.13), chestZ: .15 * s, headY: Y(.36), headZ: .2 * s, s };
+}
+function prepSimple(m, size, axis) {
+  const b = m.box, cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2, s = size / (b.max[axis] - b.min[axis]);
+  const geo = m.geo.clone(); geo.translate(-cx, -b.min.y, -cz); geo.scale(s, s, s);
+  return { geo, mat: m.mat };
+}
+function prepArm(m) {
+  // antebraço + punho: começa no cotovelo (z = 0) e o punho fica no +z
+  const b = m.box, L = 10.1, s = L / (b.max.z - b.min.z), w = s * .8;
+  const geo = m.geo.clone(); geo.translate(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2, -b.min.z); geo.scale(w, w, s);
+  geo.computeVertexNormals();
+  return { geo, mat: m.mat };
+}
+function loadModels() {
+  const loader = new GLTFLoader(), base = 'assets/modelos/';
+  const one = (name, metal) => new Promise((res, rej) => loader.load(base + name + '.glb', g => res(extractModel(g, metal)), undefined, rej));
+  return Promise.all([one('colosso', 0), one('rastejante', 0), one('braco', .3), one('mech', .3)]).then(([c, r, a, m]) => {
+    MODELS.colosso = prepColossus(c);
+    MODELS.rastejante = prepSimple(r, 5.5, 'z');
+    MODELS.braco = prepArm(a);
+    MODELS.mech = prepSimple(m, 2, 'y');
+  });
+}
+// troca antebraço e punho de caixa pelo modelo
+function applyArmModel() {
+  for (const a of [armR, armL]) {
+    a.fore.visible = a.fist.visible = a.knuckle.visible = false;
+    a.model = new THREE.Mesh(MODELS.braco.geo, MODELS.braco.mat);
+    a.model.scale.x = a.side; cockpit.add(a.model);
+    updateArmMesh(a);
+  }
+}
+
 /* ============================== COLOSSO ============================== */
 function makeColossus() {
+  if (MODELS.colosso) return makeColossusModel();
   const hide = new THREE.MeshStandardMaterial({ color: 0x2f2924, roughness: .95, emissive: 0x000000 });
   const bone = new THREE.MeshStandardMaterial({ color: 0x6f6554, roughness: .85 });
   const glow = new THREE.MeshStandardMaterial({ color: 0x1a0700, emissive: 0xff5a14, emissiveIntensity: .15 });
@@ -375,12 +477,38 @@ function makeColossus() {
   return { g, body, upper, legL, legR, armL, armR, hide, glow, eye };
 }
 
+function makeColossusModel() {
+  const C = MODELS.colosso;
+  const hide = C.mat.clone(); hide.emissive = new THREE.Color(0);
+  const glow = new THREE.MeshStandardMaterial({ color: 0x1a0700, emissive: 0xff5a14, emissiveIntensity: .15 });
+  const eye = new THREE.MeshStandardMaterial({ color: 0x220800, emissive: 0xffa040, emissiveIntensity: 1.5 });
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const pivot = (parent, x, y, geo) => { const p = new THREE.Group(); p.position.set(x, y, 0); parent.add(p);
+    const m = new THREE.Mesh(geo, hide); m.position.set(-x - (parent.userData.x || 0), -y - (parent.userData.y || 0), 0); p.add(m); p.userData = { x: x + (parent.userData.x || 0), y: y + (parent.userData.y || 0) }; return p; };
+  body.userData = { x: 0, y: 0 };
+  const legL = pivot(body, -C.hipX, C.hipY, C.legL), legR = pivot(body, C.hipX, C.hipY, C.legR);
+  const upper = pivot(body, 0, C.waistY, C.torso);
+  const armL = pivot(upper, -C.shX, C.shY - C.waistY, C.armL), armR = pivot(upper, C.shX, C.shY - C.waistY, C.armR);
+  // fenda no peito que acende antes da investida, e olhos
+  const crack = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), glow); crack.scale.set(1.3, 1.9, .5); crack.position.set(0, C.chestY - C.waistY, C.chestZ); upper.add(crack);
+  for (const x of [-1, 1]) { const e = new THREE.Mesh(new THREE.BoxGeometry(.8, .4, .3), eye); e.position.set(x * .9, C.headY - C.waistY, C.headZ); upper.add(e); }
+  g.scale.setScalar(1.4);
+  scene.add(g);
+  return { g, body, upper, legL, legR, armL, armR, hide, glow, eye };
+}
+
 /* ============================== RASTEJANTE ============================== */
 const crawlerGeo = new THREE.SphereGeometry(1, 10, 7);
 const crawlerMat = new THREE.MeshStandardMaterial({ color: 0x241f1b, roughness: .9 });
 const crawlerEye = new THREE.MeshStandardMaterial({ color: 0x200500, emissive: 0xff6a20, emissiveIntensity: 2 });
 const crawlerLegGeo = new THREE.BoxGeometry(.25, .25, 2.2);
 function makeCrawler() {
+  if (MODELS.rastejante) {
+    const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+    body.add(new THREE.Mesh(MODELS.rastejante.geo, MODELS.rastejante.mat));
+    scene.add(g);
+    return { g, body, legsC: [] };
+  }
   const g = new THREE.Group();
   const b = new THREE.Mesh(crawlerGeo, crawlerMat); b.scale.set(1.5, .85, 2.1); b.position.y = 1; g.add(b);
   for (const x of [-.5, .5]) { const e = new THREE.Mesh(new THREE.BoxGeometry(.3, .2, .1), crawlerEye); e.position.set(x, 1.3, 2); g.add(e); }
@@ -621,6 +749,31 @@ function resumeGame() { $('pauseScreen').hidden = true; S.phase = 'play'; if (AC
 $('resumeBtn').addEventListener('click', resumeGame);
 $('startBtn').addEventListener('click', startGame);
 $('restartBtn').addEventListener('click', startGame);
+
+// mech girando na tela inicial
+function startShowroom() {
+  const cv = $('mechView'); if (!cv || !MODELS.mech) return;
+  let r; try { r = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); } catch (err) { return; }
+  r.outputColorSpace = THREE.SRGBColorSpace;
+  const sc = new THREE.Scene();
+  sc.add(new THREE.HemisphereLight(0xe0d0b0, 0x2a2018, 1.4));
+  const key = new THREE.DirectionalLight(0xffd8a8, 2.2); key.position.set(-2, 3, 3); sc.add(key);
+  const rim = new THREE.DirectionalLight(0x8090a0, 1.2); rim.position.set(2, 1.5, -3); sc.add(rim);
+  const m = new THREE.Mesh(MODELS.mech.geo, MODELS.mech.mat); sc.add(m);
+  const cam = new THREE.PerspectiveCamera(30, cv.width / cv.height, .1, 50); cam.position.set(0, 1.25, 4.6); cam.lookAt(0, .98, 0);
+  const tick = t => {
+    if (!$('startScreen').hidden) { m.rotation.y = .5 + t * .00035; r.render(sc, cam); }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function modelsReady(ok) {
+  const btn = $('startBtn'); btn.disabled = false; btn.textContent = 'Ligar o mech';
+  $('loadNote').textContent = ok ? '' : 'Os modelos 3D não carregaram (abra por um servidor local, veja o README). Usando formas simples.';
+  $('loadNote').hidden = ok;
+  if (ok) { applyArmModel(); startShowroom(); }
+}
+loadModels().then(() => modelsReady(true), err => { console.warn('modelos 3D:', err); modelsReady(false); });
 
 function startGame() {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -1127,6 +1280,7 @@ function updateCrawlers(dt) {
     }
     cr.m.g.position.set(cr.x, cr.y, cr.z);
     cr.m.legsC.forEach((l, i) => { l.rotation.x = Math.sin(cr.ph + i) * .5; });
+    if (cr.m.body) { cr.m.body.rotation.z = Math.sin(cr.ph) * .07; cr.m.body.rotation.x = Math.sin(cr.ph * 2) * .03; cr.m.body.position.y = Math.abs(Math.sin(cr.ph)) * .18; }
   }
   S.latched = latched;
   if (latched && Math.random() < dt * latched * .8 && snd.ok) oneNoise(.12, 'bandpass', rand(1800, 3200), 4, .05, .1);

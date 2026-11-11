@@ -2,11 +2,11 @@
 
 Protótipo de um jogo de gerenciamento e horde shooter em primeira pessoa, dentro do cockpit de um mech de uns 40 m. Cada movimento tem peso: as pernas demoram pra embalar, o torso gira como torre de tanque e todo soco depende de pressão hidráulica. O jogador precisa ler o inimigo e começar a agir antes.
 
-Versão atual: protótipo 0.3.
+Versão atual: protótipo 0.4.
 
 ## Como rodar
 
-Não tem instalação nem build. O jogo inteiro está em `index.html` e usa Three.js 0.160 carregado por CDN, então precisa de internet.
+Não tem instalação nem build. O jogo está em `index.html` e usa Three.js 0.160 carregado por CDN, então precisa de internet. Os modelos 3D ficam em `assets/modelos` e só carregam quando a pasta é servida por um servidor (abrir o arquivo direto no navegador cai nas formas simples antigas).
 
 Sirva a pasta com qualquer servidor estático e abra no navegador:
 
@@ -41,6 +41,13 @@ Precisa de teclado e mouse. Fones são recomendados, porque o som faz parte do p
 - Inimigos: Colosso com ataques avisados (investida e pancada) e rastejantes que agarram nas pernas.
 - Som contínuo gerado no navegador com Web Audio.
 - 5 ondas.
+
+## Modelos e arte conceitual
+
+A arte conceitual e os modelos 3D foram gerados no Higgsfield, com tema e visual próprios:
+
+- `assets/conceito/`: mech M-40, cockpit, Colosso, rastejante e braço.
+- `assets/modelos/`: malhas GLB convertidas da arte. O Colosso é cortado em tronco, braços e pernas na hora de carregar, pra continuar animando os avisos de ataque. O antebraço com o punho substitui as caixas dos braços no cockpit. O mech completo aparece girando na tela inicial.
 
 ## Direção
 
