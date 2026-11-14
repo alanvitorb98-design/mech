@@ -1392,6 +1392,10 @@ func release_charge():
 	S.punch_t = 0.25 + 0.45 * S.punch_c
 	S.punch_crel = S.punch_c * (0.45 + 0.55 * pf())
 	snd.play("hiss", 0.6 + S.punch_c)
+	# preparo: ombro direito vai pra trás, peso no pé de trás, cabeça acompanha
+	S.t_vel -= 0.25 + 0.35 * S.punch_c
+	S.sway_v += 0.3 * S.punch_c
+	S.hc_v += 0.2 * S.punch_c
 
 
 func punch_impact():
@@ -1433,8 +1437,7 @@ func punch_impact():
 			kill_crawler(cr)
 			hit = true
 	snd.play("impact", 1.0 if hit else 0.45)
-	S.shake = max(S.shake, 1.1 if hit else 0.5)
-	S.t_vel -= 0.25 * c   # recuo no torso
+	return hit
 
 
 func hit_mech(src_x, src_z, dmg):
@@ -1688,9 +1691,9 @@ func update_motion(dt):
 	var turn_in = ((1.0 if key(KEY_A) else 0.0) - (1.0 if key(KEY_D) else 0.0)) * unlocked
 	var v_t = 0.0
 	if fwd_in > 0.0:
-		v_t = 7.5 * leg_f * p
+		v_t = 6.0 * leg_f * p   # perna de ~19 m: acima disso a passada vira corrida
 	elif fwd_in < 0.0:
-		v_t = -2.8 * leg_f * p
+		v_t = -2.4 * leg_f * p
 	S.v = approach(S.v, v_t, (1.05 if fwd_in != 0.0 else 0.75) * (0.4 + 0.6 * p) * dt)
 	S.w = approach(S.w, turn_in * 0.3 * leg_f * p, (0.28 if turn_in != 0.0 else 0.36) * dt)
 	S.yaw += S.w * clamp(S.gf * 1.1, 0.35, 1.3) * dt
@@ -1706,6 +1709,9 @@ func update_motion(dt):
 	var max_acc = max_rate * 1.7
 	S.t_target = clamp(S.aim, -1.75, 1.75)   # o torso persegue pra onde o piloto olha
 	var a = clamp(5.5 * (S.t_target - S.t) - 2.4 * S.t_vel, -max_acc, max_acc)
+	var t_vel_prev = S.t_vel
+	# no golpe o motor do torso libera mais giro: o corpo acompanha o braço
+	max_rate *= 1.0 + 1.6 * S.commit
 	S.t_vel = clamp(S.t_vel + a * dt, -max_rate, max_rate)
 	S.t += S.t_vel * dt
 	if S.t > 1.8:
@@ -1724,6 +1730,16 @@ func update_motion(dt):
 		S.look_p = lerp(S.look_p, 0.0, kk)
 	# inclinação pela inércia
 	S.roll = lerp(S.roll, -S.w * 0.6 - S.t_vel * 0.025, min(1.0, dt * 3.0))
+	# pescoço: quando o torso dá tranco a cabeça fica pra trás e depois acerta a mira
+	var t_acc = (S.t_vel - t_vel_prev) / max(dt, 0.004)
+	S.hc_v += (-70.0 * S.hc - 11.0 * S.hc_v - t_acc * 0.35) * dt
+	S.hc = clamp(S.hc + S.hc_v * dt, -0.12, 0.12)
+	S.hp_adjv += (-55.0 * S.hp_adj - 10.0 * S.hp_adjv) * dt
+	S.hp_adj = clamp(S.hp_adj + S.hp_adjv * dt, -0.1, 0.1)
+	# reação dos braços no corpo (rolagem)
+	S.react_rollv += (-24.0 * S.react_roll - 8.0 * S.react_rollv) * dt
+	S.react_roll = clamp(S.react_roll + S.react_rollv * dt, -0.08, 0.08)
+	S.commit = max(0.0, S.commit - dt * 1.4)
 
 
 func update_legs(dt):
@@ -1732,8 +1748,11 @@ func update_legs(dt):
 	var fz = -cos(S.yaw)
 	var rx = cos(S.yaw)
 	var rz = -sin(S.yaw)
-	var vf = clamp(abs(S.v) / 7.0, 0.0, 1.0)
+	var vf = clamp(abs(S.v) / 6.0, 0.0, 1.0)
 	S.step_rest = max(0.0, S.step_rest - dt)
+	S.stumble = max(0.0, S.stumble - dt)
+	# ritmo de pêndulo: perna de ~19 m dá passo de 2,2 a 2,7 s
+	var t_step = clamp(2.7 - abs(S.v) * 0.085, 2.2, 2.7) / (0.6 + 0.4 * p)
 	var any_stepping = false
 	var worst = null
 	var worst_err = 0.0
@@ -1750,29 +1769,42 @@ func update_legs(dt):
 			worst_err = err
 			worst = L
 	var want_move = key(KEY_W) or key(KEY_S) or key(KEY_A) or key(KEY_D)
-	if not any_stepping and S.step_rest <= 0.0 and worst != null and worst_err > (0.12 if want_move else 1.1):
+	# empurrão forte tira o peso de cima dos pés: passo de recuperação, sem esperar
+	var pushed = S.push.length() > 2.5 and S.stumble <= 0.0
+	var can_step = S.step_rest <= 0.0 or pushed
+	if not any_stepping and can_step and worst != null and (worst_err > (0.3 if want_move else 1.1) or pushed):
 		var L = worst
 		L.stepping = true
 		L.t = 0.0
 		S.last_leg = L.side
-		L.dur = clamp(1.5 - abs(S.v) * 0.06, 1.05, 1.5) / (0.6 + 0.4 * p)
+		L.dur = t_step * 0.78   # 22% do ciclo com os dois pés no chão
+		if pushed:
+			L.dur = 1.1
+			S.stumble = 1.6
 		L.sx = L.x
 		L.sz = L.z
 		L.syaw = L.yaw
 		var v_e = S.v
 		if want_move and abs(S.v) > 0.05:
-			v_e = sign(S.v) * max(abs(S.v), 2.0)
-		# o pé pousa meio passo à frente do quadril, como passada de gente
-		var reach = v_e * 1.03 * L.dur + 4.2 * clamp(v_e / 6.0, -1.0, 1.0)
+			v_e = sign(S.v) * max(abs(S.v), 1.5)
+		# o pé pousa meio passo à frente de onde o quadril vai estar
+		var reach = v_e * L.dur + v_e * t_step * 0.4
 		L.tx = L.ix + fx * reach
 		L.tz = L.iz + fz * reach
+		if pushed:
+			L.tx += S.push.x * 0.9
+			L.tz += S.push.y * 0.9
 		L.tyaw = S.yaw + S.w * L.dur
 		S.P -= 3.0 + abs(S.v) * 0.8
+		# antecipação: o quadril afunda um pouco antes de tirar o pé
+		S.bob_v -= 0.5 + 0.5 * vf
 		if dt > 0.0:
 			snd.play("lift", 0.55 + 0.45 * vf, 1.2 / L.dur)
-	var gf_t = 0.55
+	var gf_t = 1.0
 	var rise_t = 0.0
-	var sway_t = 0.0
+	# peso no pé de apoio: começa a passar logo que o outro pé pousa (antes de levantar)
+	var sway_amp = 0.45 + 0.35 * vf
+	var sway_t = (S.last_leg * sway_amp) if (S.last_leg != null and (want_move or any_stepping)) else 0.0
 	var swing_side = 0.0
 	for L in legs:
 		if not L.stepping:
@@ -1780,30 +1812,34 @@ func update_legs(dt):
 			continue
 		L.t += dt / L.dur
 		var t = min(1.0, L.t)
-		var s = smooth(t)
+		# sobe devagar, vai pra frente, e no fim desce seco
+		var s = smooth(min(1.0, t / 0.82))
 		L.x = lerp(L.sx, L.tx, s)
 		L.z = lerp(L.sz, L.tz, s)
 		L.yaw = L.syaw + ang_wrap(L.tyaw - L.syaw) * s
-		L.y = sin(PI * pow(t, 1.4)) * (2.2 + 1.6 * vf)
-		gf_t = 0.6 + 0.65 * sin(PI * t)
-		rise_t = (0.12 + 0.2 * vf) * sin(PI * t)
-		sway_t = -L.side * (0.3 + 0.3 * vf)   # peso vai pra perna de apoio
+		L.y = sin(PI * pow(t, 1.5)) * (1.8 + 1.4 * vf)
+		gf_t = 1.0 - 0.07 * sin(PI * t)
+		rise_t = (0.15 + 0.25 * vf) * sin(PI * t)   # pêndulo invertido: corpo sobe no meio do apoio
+		sway_t = -L.side * sway_amp
 		swing_side = L.side
 		if t >= 1.0:
 			L.stepping = false
 			L.y = 0.0
 			var vol = 0.6 + 0.4 * vf
 			snd.play("step", vol)
-			S.shake = max(S.shake, 0.22 + vol * 0.25)
-			S.bob_v -= 2.4 + 3.0 * vf
-			S.nod_v -= 0.16 + 0.26 * vf
-			S.sway_v += L.side * (0.25 + 0.3 * vf)
+			S.shake = max(S.shake, 0.3 + vol * 0.3)
+			S.bob_v -= 1.6 + 2.4 * vf      # afunda devagar, sem quicar
+			S.kick_v -= 2.0 + 2.5 * vf     # pancada seca na câmera
+			S.pod_yv -= 1.0 + 1.4 * vf     # a cabine desce na suspensão
+			S.nod_v -= 0.05 + 0.07 * vf
+			S.fov_k += 0.6 + 0.8 * vf
+			S.sway_v += L.side * (0.15 + 0.2 * vf)
 			S.pend_fv += 0.8 + 1.6 * vf
 			S.pend_lv += L.side * 0.6
-			S.step_rest = 0.16 / (0.6 + 0.4 * p)
-			puff(Vector3(L.x, 1, L.z), 8.0, 0xb59a74, 1.8, 1.2)
-			puff(Vector3(L.x + rx * 3.0, 1, L.z + rz * 3.0), 5.0, 0xb59a74, 1.4, 1.0)
-			puff(Vector3(L.x - rx * 3.0, 1, L.z - rz * 3.0), 5.0, 0xb59a74, 1.4, 1.0)
+			S.step_rest = t_step * 0.22 if want_move else 0.5
+			puff(Vector3(L.x, 1, L.z), 8.0 + 4.0 * vf, 0xb59a74, 1.8 + vf, 1.2)
+			puff(Vector3(L.x + rx * 3.0, 1, L.z + rz * 3.0), 5.0 + 3.0 * vf, 0xb59a74, 1.4, 1.0)
+			puff(Vector3(L.x - rx * 3.0, 1, L.z - rz * 3.0), 5.0 + 3.0 * vf, 0xb59a74, 1.4, 1.0)
 			for cr in S.crawlers:
 				if cr.dead:
 					continue
@@ -1816,36 +1852,52 @@ func update_legs(dt):
 					var a = randf_range(0.0, TAU)
 					cr.x += cos(a) * 9.0
 					cr.z += sin(a) * 9.0
-	S.gf = lerp(S.gf, gf_t, min(1.0, dt * 6.0))
-	S.rise = lerp(S.rise, rise_t, min(1.0, dt * 5.0))
-	S.bob_v += (-46.0 * S.bob_y - 7.0 * S.bob_v) * dt
+	S.gf = lerp(S.gf, gf_t, min(1.0, dt * 4.0))
+	S.rise = lerp(S.rise, rise_t, min(1.0, dt * 3.0))
+	# molas quase criticamente amortecidas: massa grande não quica
+	S.bob_v += (-14.0 * S.bob_y - 7.1 * S.bob_v) * dt
 	S.bob_y += S.bob_v * dt
-	S.nod_v += (-52.0 * S.nod - 8.0 * S.nod_v) * dt
+	S.nod_v += (-30.0 * S.nod - 9.9 * S.nod_v) * dt
 	S.nod += S.nod_v * dt
+	S.kick_v += (-140.0 * S.kick - 14.0 * S.kick_v) * dt
+	S.kick += S.kick_v * dt
 	var prev_sv = S.sway_v
-	S.sway_v += (20.0 * (sway_t - S.sway) - 7.0 * S.sway_v) * dt
+	S.sway_v += (10.0 * (sway_t - S.sway) - 6.0 * S.sway_v) * dt
 	S.sway += S.sway_v * dt
-	S.arm_swing = lerp(S.arm_swing, -swing_side * (0.35 + 0.65 * vf), min(1.0, dt * 3.0))
-	# peças penduradas: reagem à aceleração da cabine
-	var v_inst = S.v * S.gf
+	S.arm_swing = lerp(S.arm_swing, -swing_side * (0.35 + 0.65 * vf), min(1.0, dt * 2.0))
+	# aceleração real do corpo (passo + empurrão), no referencial do mech
+	var vw = Vector2(fx, fz) * (S.v * S.gf) + S.push
 	var idt = 1.0 / max(dt, 0.004)
-	var a_f = clamp((v_inst - S.v_inst) * idt, -9.0, 9.0)
-	S.v_inst = v_inst
-	var a_l = clamp((S.sway_v - prev_sv) * idt, -9.0, 9.0) + S.t_vel * 2.5 + S.w * 6.0
+	var acc = (vw - S.vw_prev) * idt
+	S.vw_prev = vw
+	var a_f = clamp(acc.dot(Vector2(fx, fz)), -9.0, 9.0)
+	var a_side = clamp(acc.dot(Vector2(rx, rz)), -9.0, 9.0)
+	S.v_inst = S.v * S.gf
+	# torso atrasa na aceleração (inclina pra trás ao arrancar, pra frente ao frear)
+	S.lean_fv += (-6.0 * S.lean_f - 3.4 * S.lean_fv + a_f * 0.12) * dt
+	S.lean_f = clamp(S.lean_f + S.lean_fv * dt, -0.12, 0.12)
+	# cabine pendurada na suspensão
+	S.pod_zv += (-40.0 * S.pod_z - 8.0 * S.pod_zv + a_f * 0.35) * dt
+	S.pod_z = clamp(S.pod_z + S.pod_zv * dt, -0.7, 0.7)
+	S.pod_yv += (-40.0 * S.pod_y - 8.0 * S.pod_yv) * dt
+	S.pod_y = clamp(S.pod_y + S.pod_yv * dt, -0.6, 0.6)
+	# peças penduradas: reagem à aceleração da cabine
+	var a_l = clamp((S.sway_v - prev_sv) * idt, -9.0, 9.0) + a_side + S.t_vel * 2.5 + S.w * 6.0
 	S.pend_fv += (-13.0 * S.pend_f - 0.8 * S.pend_fv + a_f * 0.4) * dt
 	S.pend_f = clamp(S.pend_f + S.pend_fv * dt, -1.1, 1.1)
 	S.pend_lv += (-13.0 * S.pend_l - 0.8 * S.pend_lv + a_l * 0.4) * dt
 	S.pend_l = clamp(S.pend_l + S.pend_lv * dt, -1.1, 1.1)
-	# pernas humanoides: quadril em cima dos pés, joelho dobra pra frente
+	# pernas humanoides: quadril em cima dos pés, joelho dobra pra frente.
+	# o quadril inteiro (e o corpo junto) passa pro pé de apoio, sem deslizar o torso
 	var max_h = 0.0
 	for L in legs:
-		L.hx = S.pos.x + rx * (L.side * 3.6 + S.sway * 0.6)
-		L.hz = S.pos.y + rz * (L.side * 3.6 + S.sway * 0.6)
+		L.hx = S.pos.x + rx * (L.side * 3.6 + S.sway)
+		L.hz = S.pos.y + rz * (L.side * 3.6 + S.sway)
 		if not L.stepping:
 			max_h = max(max_h, hyp(L.x - L.hx, L.z - L.hz))
 	# perna esticada limita a altura do quadril
 	var cap = sqrt(max(1.0, (2.0 * LEG - 0.15) * (2.0 * LEG - 0.15) - max_h * max_h)) + ANK
-	S.body_y = lerp(S.body_y, min(HIP + S.bob_y + S.rise, cap) - HIP, min(1.0, dt * 12.0))
+	S.body_y = lerp(S.body_y, min(HIP + S.bob_y + S.rise, cap) - HIP, min(1.0, dt * 8.0))
 	var hint = Vector3(fx, 0.1, fz)
 	for L in legs:
 		var hip = Vector3(L.hx, HIP + S.body_y, L.hz)
@@ -1860,6 +1912,8 @@ func update_legs(dt):
 func update_punch(dt):
 	var p = pf()
 	var elec = 1.0 if S.reactor_on else 0.4
+	var a = arm_r
+	var b = arm_l
 	if S.punch_s == "charge":
 		S.punch_c = min(1.0, S.punch_c + (0.32 + 1.0 * S.E.arms) * p * elec * dt)
 		if not mouse_l:
@@ -1867,14 +1921,14 @@ func update_punch(dt):
 	elif S.punch_s == "windup":
 		S.punch_t -= dt
 		if S.punch_t <= 0.0:
-			S.punch_s = "strike"
-			S.punch_t = 0.17
+			start_strike(a)
 	elif S.punch_s == "strike":
 		S.punch_t -= dt
-		if S.punch_t <= 0.0:
-			punch_impact()
-			S.punch_s = "recover"
-			S.punch_t = 0.7 + 0.6 * S.punch_crel
+		# o golpe resolve quando o punho chega no alvo (ou começa a voltar), não por relógio fixo
+		var to_t = S.punch_tgt - a.pos
+		var reached = to_t.length() < 1.6 or (S.arm_vel.dot(to_t) < 0.0 and S.punch_t < 0.5)
+		if reached or S.punch_t <= 0.0:
+			resolve_punch(a)
 	elif S.punch_s == "recover":
 		S.punch_t -= dt
 		if S.punch_t <= 0.0:
@@ -1893,36 +1947,142 @@ func update_punch(dt):
 	S.guard = approach(S.guard, 1.0 if want_guard else 0.0, (1.0 if want_guard else 0.55) * (0.4 + 0.6 * p) * dt)
 	var gs = smooth(S.guard)
 	var swing = S.arm_swing * (1.0 - gs) * 3.4
-	# braço direito: soco
-	var a = arm_r
+	var pk = 0.5 + 0.5 * p
+	# braço direito: massa na ponta de um pistão. Mola + amortecedor + força máxima da hidráulica
 	var tgt = a.rest.lerp(a.guard, gs)
 	tgt.z -= swing
-	var cocked = Vector3(9, -2.4, 3.2)
-	var rate = 15.0
+	var c = S.punch_c
+	var cocked = Vector3(9.5, -2.0 - 1.2 * c, 3.0 + 2.2 * c)   # quanto mais carga, mais pra trás
+	var k = 45.0
+	var zeta = 0.85
+	var fmax = 160.0
 	if S.punch_s == "charge":
-		tgt = tgt.lerp(cocked, smooth(min(1.0, S.punch_c * 1.5)))
+		tgt = tgt.lerp(cocked, smooth(min(1.0, c * 1.5)))
+		k = 30.0
+		fmax = 70.0
 	elif S.punch_s == "windup":
 		tgt = cocked
+		k = 50.0
+		fmax = 120.0
 	elif S.punch_s == "strike":
-		tgt = Vector3(2.2, -1.8, -8.4)
-		rate = 190.0
+		tgt = S.punch_tgt
+		k = 220.0 + 300.0 * S.punch_crel
+		zeta = 0.32   # passa do ponto: follow-through
+		fmax = 700.0 + 1300.0 * S.punch_crel
 	elif S.punch_s == "recover":
-		rate = 13.0
-	var np = a.pos.move_toward(tgt, rate * (0.5 + 0.5 * p) * dt)
-	if S.punch_s == "charge":   # o braço treme enquanto pressuriza
-		np.x += randf_range(-0.03, 0.03) * S.punch_c
-		np.y += randf_range(-0.03, 0.03) * S.punch_c
-	a.pos = np
+		k = 14.0      # volta pesado, sem pressa
+		zeta = 0.9
+		fmax = 55.0
+	var force = (k * (tgt - a.pos) - 2.0 * sqrt(k) * zeta * S.arm_vel).limit_length(fmax * pk)
+	if S.punch_s == "charge":   # o braço vibra enquanto pressuriza
+		force += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * c * 30.0
+	S.arm_vel += force * dt
+	a.pos += S.arm_vel * dt
+	var off = a.pos - a.shoulder
+	if off.length() > 15.4:
+		var n = off.normalized()
+		a.pos = a.shoulder + n * 15.4
+		var out = S.arm_vel.dot(n)
+		if out > 0.0:
+			S.arm_vel -= n * out
+	arm_reaction(a, S.arm_vel, dt)
 	update_arm(a)
-	# braço esquerdo: bloqueio
+	# braço esquerdo: bloqueio. No soco do direito ele recolhe pro peito (contra-movimento)
 	var can_block = mouse_r and S.sec.armL > 0.0 and S.P > 10.0 and S.guard > 0.6
 	S.block = min(1.0, S.block + 2.4 * p * dt) if can_block else max(0.0, S.block - 2.8 * dt)
-	var b = arm_l
-	tgt = b.rest.lerp(b.guard, gs)
-	tgt.z += swing
-	tgt = tgt.lerp(Vector3(-1.4, -1, -7.2), smooth(S.block))
-	b.pos = b.pos.move_toward(tgt, 30.0 * dt)
+	var bt = b.rest.lerp(b.guard, gs)
+	bt.z += swing
+	if S.punch_s == "windup" or S.punch_s == "strike":
+		bt = bt.lerp(Vector3(-4.6, -3.2, -2.5), 0.7 if S.punch_s == "strike" else 0.35)
+	bt = bt.lerp(Vector3(-1.4, -1, -7.2), smooth(S.block))
+	var bv = b.get("vel", Vector3.ZERO)
+	var kb = 60.0
+	var fb = (kb * (bt - b.pos) - 2.0 * sqrt(kb) * 0.8 * bv).limit_length(240.0 * pk)
+	bv += fb * dt
+	b.pos += bv * dt
+	b.vel = bv
+	arm_reaction(b, bv, dt)
 	update_arm(b)
+
+
+# o braço acelera, o corpo leva o tranco ao contrário (torso, rolagem, pescoço)
+func arm_reaction(arm, vel, dt):
+	var prev = arm.get("vprev", vel)
+	arm.vprev = vel
+	var acc = ((vel - prev) / max(dt, 0.004)).limit_length(2500.0)
+	S.react_rollv += (acc.y * arm.side * 0.0006 - acc.x * 0.0002) * dt
+	S.lean_fv += -acc.z * 0.0002 * dt
+	S.t_vel += acc.z * arm.side * 0.0003 * dt
+	S.hc_v += -acc.x * 0.0004 * dt
+
+
+# mira procedural: o soco vai onde o inimigo está, não sempre no mesmo ponto
+func compute_punch_target(a):
+	var world_pt = null
+	var best_d = 1e9
+	for col in S.colossi:
+		if col.state == "dead":
+			continue
+		var d = hyp(col.x - S.pos.x, col.z - S.pos.y)
+		if d < 70.0 and abs(angle_to(col.x, col.z)) < 40.0 * DEG and d < best_d:
+			best_d = d
+			world_pt = Vector3(col.x, 26.0 + randf_range(-3.0, 3.0), col.z)
+	if world_pt == null:
+		for cr in S.crawlers:
+			if cr.dead or cr.state == "latched":
+				continue
+			var d = hyp(cr.x - S.pos.x, cr.z - S.pos.y)
+			if d < 36.0 and abs(angle_to(cr.x, cr.z)) < 35.0 * DEG and d < best_d:
+				best_d = d
+				world_pt = Vector3(cr.x, 2.0, cr.z)
+	if world_pt == null:
+		world_pt = cam.global_position - cam.global_transform.basis.z * 40.0
+	var local = cockpit.to_local(world_pt)
+	var dir = (local - a.shoulder).normalized()
+	dir.z = min(dir.z, -0.35)
+	dir = dir.normalized()
+	return a.shoulder + dir * 14.6 + Vector3(randf_range(-0.6, 0.6), randf_range(-0.6, 0.6), 0.0)
+
+
+func start_strike(a):
+	var cr = S.punch_crel
+	S.punch_s = "strike"
+	S.punch_t = 0.75
+	S.punch_tgt = compute_punch_target(a)
+	# o corpo inteiro vai junto: ombro gira, peso passa pra frente, cabeça encolhe
+	S.commit = 0.6 + 0.4 * cr
+	S.t_vel += 0.45 + 0.6 * cr
+	S.lean_fv -= 0.12 + 0.2 * cr
+	S.sway_v -= 0.4 * cr
+	S.hp_adjv -= 0.35 * (0.5 + cr)
+	S.pod_zv -= 0.8 * cr
+
+
+func resolve_punch(a):
+	var cr = S.punch_crel
+	var hit = punch_impact()
+	S.punch_s = "recover"
+	S.punch_t = 0.8 + 0.6 * cr
+	if hit:
+		S.hitstop = 0.05 + 0.08 * cr          # o mundo trava um instante no contato
+		S.arm_vel = -S.arm_vel * 0.18          # o punho para no alvo e volta
+		S.shake = max(S.shake, 0.9 + 0.6 * cr)
+		S.pod_zv += 2.0 + 3.0 * cr             # cabine leva o coice
+		S.fov_k += 2.0 + 3.0 * cr
+		S.t_vel -= 0.35 + 0.5 * cr             # recuo no ombro
+		S.lean_fv += 0.25 * cr
+		S.hp_adjv += 0.5 + 0.6 * cr            # cabeça dá o tranco
+		S.hc_v += randf_range(-0.6, 0.6)
+		S.push -= Vector2(-sin(S.yaw), -cos(S.yaw)) * (1.0 + 2.5 * cr)
+		S.neural = min(1.0, S.neural + 0.15 * cr)
+		puff(cockpit.to_global(a.pos), 4.0 + 6.0 * cr, 0xffc070, 0.35, 1.0)
+	else:
+		# soco no vazio: o corpo passa do ponto e demora pra voltar
+		S.punch_t += 0.5
+		S.t_vel += 0.3 * cr
+		S.lean_fv -= 0.15 * cr
+		S.commit = 1.0
+		S.shake = max(S.shake, 0.3)
 
 
 func update_colossi(dt):
@@ -2167,6 +2327,7 @@ func update_fx(dt):
 	dust.position = Vector3(S.pos.x, 22.0, S.pos.y)
 	# conexão neural e tremor
 	S.shake = max(0.0, S.shake - dt * 1.6)
+	S.fov_k = clamp(S.fov_k - dt * (2.5 + S.fov_k * 2.0), 0.0, 6.0)
 	S.neural = max(0.0, S.neural - dt * 0.55)
 	var low = (0.25 + 0.1 * sin(S.time * 4.0)) if S.sec.cockpit < 30.0 else 0.0
 	vignette.modulate.a = clamp(S.neural * 0.9 + low, 0.0, 1.0)
@@ -2214,16 +2375,32 @@ var lowpass = null
 
 
 # ============================== CÂMERA E LAÇO ==============================
+var shake_noise = null
+var shake_clock = 0.0
+
+
 func apply_camera():
-	mech.position = Vector3(S.pos.x, S.body_y, S.pos.y)
+	# o corpo inteiro (quadril + torso) passa pro pé de apoio; o torso não desliza sobre o quadril
+	mech.position = Vector3(S.pos.x + cos(S.yaw) * S.sway, S.body_y, S.pos.y - sin(S.yaw) * S.sway)
 	mech.rotation.y = S.yaw
-	var lean = S.roll * 0.5 - S.sway * 0.02
-	torso.position.x = S.sway
-	torso.rotation = Vector3(S.nod, S.t + S.sway * 0.01, lean)
+	var lean = S.roll * 0.5 - S.sway * 0.02 + S.react_roll
+	var pitch = S.nod + S.lean_f
+	torso.position.x = 0.0
+	torso.rotation = Vector3(pitch, S.t + S.sway * 0.01, lean)
+	# tremor grave e contínuo (ruído suave), não chiado aleatório por quadro
+	if shake_noise == null:
+		shake_noise = FastNoiseLite.new()
+		shake_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		shake_noise.frequency = 1.0
 	var sh = S.shake * S.shake
-	cockpit.position = Vector3(randf_range(-0.5, 0.5) * sh * 0.3, 8.0 + randf_range(-0.5, 0.5) * sh * 0.3, -4.2)
-	# o capacete compensa boa parte do balanço do corpo, pra mira ficar firme
-	head.rotation = Vector3(S.p + S.look_p - S.nod * 0.75 + randf_range(-0.5, 0.5) * sh * 0.006, S.h + S.look_h, -lean * 0.75 + randf_range(-0.5, 0.5) * sh * 0.008)
+	var q = shake_clock * 8.0
+	var n1 = shake_noise.get_noise_2d(q, 0.0)
+	var n2 = shake_noise.get_noise_2d(q, 37.0)
+	var n3 = shake_noise.get_noise_2d(q, 91.0)
+	cockpit.position = Vector3(n1 * sh * 0.45, 8.0 + S.pod_y + S.kick + n2 * sh * 0.45, -4.2 + S.pod_z)
+	# o capacete compensa só parte do balanço: o piloto sente o passo, mas a mira fica utilizável
+	head.rotation = Vector3(S.p + S.look_p - pitch * 0.3 + S.hp_adj + n3 * sh * 0.01, S.h + S.look_h + S.hc, -lean * 0.4 + n1 * sh * 0.012)
+	cam.fov = 72.0 + S.fov_k
 	pendulum.rotation = Vector3(S.pend_f, 0.0, S.pend_l)
 	pendulum2.rotation = Vector3(S.pend_f * 0.7, 0.0, S.pend_l * 0.7)
 
@@ -2232,6 +2409,10 @@ func _process(delta):
 	if S == null:
 		return
 	var dt = min(0.05, delta)
+	shake_clock += delta
+	if S.hitstop > 0.0:   # trava curta no contato do soco
+		S.hitstop -= delta
+		dt *= 0.06
 	if S.phase == "play":
 		S.time += dt
 		update_systems(dt)
